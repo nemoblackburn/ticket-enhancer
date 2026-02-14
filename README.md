@@ -2,7 +2,7 @@
 
 **One-click ticket enrichment powered by the Claude Agent SDK and MCP.**
 
-A Chrome extension + server that turns sparse Linear tickets into comprehensive, AI-actionable specs — by pulling context from every tool your team already uses.
+A Chrome extension + server that turns sparse Linear tickets into comprehensive, AI-actionable specs by pulling context from every tool your team already uses.
 
 https://github.com/user-attachments/assets/placeholder
 
@@ -16,7 +16,7 @@ Most teams have context scattered across 7+ tools: meeting notes in Notion, deci
 
 And when AI agents try to implement those tickets? They hallucinate requirements because the ticket says "add dark mode" with no other context.
 
-**Ticket Enhancer solves this by connecting all your tools through MCP and using Claude to synthesize the full picture — automatically.**
+**Ticket Enhancer solves this by connecting all your tools through MCP and using Claude to synthesize the full picture, automatically.**
 
 The result: tickets that are detailed enough for both humans and AI agents to execute without asking clarifying questions. What used to take 30 minutes of manual context-gathering now takes 3 minutes and one click.
 
@@ -26,26 +26,24 @@ The result: tickets that are detailed enough for both humans and AI agents to ex
 
 ## How It Works
 
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────────────┐
-│  Chrome Ext  │────▶│   Server    │────▶│  Claude Agent SDK    │
-│  (Linear UI) │ SSE │  (Fly.io)   │     │  + MCP Connections   │
-└─────────────┘     └─────────────┘     └──────────┬───────────┘
-                                                    │
-                                    ┌───────────────┼───────────────┐
-                                    │               │               │
-                                ┌───▼───┐   ┌──────▼──┐   ┌───────▼──┐
-                                │Linear │   │ Notion  │   │  Slack   │
-                                │Sentry │   │ Granola │   │  Figma   │
-                                │Metabase│   └─────────┘   └──────────┘
-                                └────────┘
+```mermaid
+graph LR
+    A["Chrome Extension<br/>(Linear UI)"] -->|SSE| B["Server<br/>(Fly.io)"]
+    B --> C["Claude Agent SDK<br/>+ MCP"]
+    C --> D["Linear"]
+    C --> E["Notion"]
+    C --> F["Slack"]
+    C --> G["Sentry"]
+    C --> H["Granola"]
+    C --> I["Figma"]
+    C --> J["Metabase"]
 ```
 
 1. You click **Enhance** on any Linear ticket
 2. The server spins up a Claude agent with MCP access to your tools
 3. The agent reads the ticket, searches meeting notes, Slack threads, Sentry errors, Notion specs, and more
 4. It synthesizes everything into a structured, actionable ticket description
-5. It updates the Linear ticket directly — you just watch the progress panel
+5. It updates the Linear ticket directly while you watch the progress panel
 
 The Chrome extension streams real-time progress via SSE, showing you exactly which tools the agent is querying with branded icons for each service.
 
@@ -55,11 +53,11 @@ The Chrome extension streams real-time progress via SSE, showing you exactly whi
 
 The agent rewrites tickets into a consistent format:
 
-- **Summary** — Clear 2-3 sentence description of what and why
-- **Context** — Decisions from meetings, Slack discussions, and stakeholder input
-- **Requirements** — Specific acceptance criteria an AI agent could implement from
-- **Technical Notes** — Sentry errors, file paths, API endpoints, architectural context
-- **References** — Links to Notion specs, Slack threads, Sentry issues (not copied content — just links)
+- **Summary**: Clear 2-3 sentence description of what and why
+- **Context**: Decisions from meetings, Slack discussions, and stakeholder input
+- **Requirements**: Specific acceptance criteria an AI agent could implement from
+- **Technical Notes**: Sentry errors, file paths, API endpoints, architectural context
+- **References**: Links to Notion specs, Slack threads, Sentry issues (linked, not copied)
 
 Tickets become consumable by both humans reviewing them and AI coding agents implementing them.
 
@@ -108,13 +106,13 @@ The server runs at `http://localhost:7842` by default.
 1. Open `chrome://extensions`
 2. Enable **Developer mode** (top right)
 3. Click **Load unpacked** and select the `extension/` folder
-4. Click the extension icon → set **Server URL** to `http://localhost:7842`
+4. Click the extension icon and set **Server URL** to `http://localhost:7842`
 5. Leave Auth Token empty for local dev
 
 ### 5. Enhance a ticket
 
 1. Open any ticket on [linear.app](https://linear.app)
-2. Click the **✦ Enhance** button that appears in the ticket header
+2. Click the **Enhance** button that appears in the ticket header
 3. Watch the progress panel as the agent pulls context from your tools
 4. The ticket description gets updated automatically
 
@@ -128,7 +126,7 @@ You can also enhance tickets from the command line without the Chrome extension:
 # Single ticket
 npm run enhance ENG-123
 
-# Batch — multiple tickets at once
+# Batch: multiple tickets at once
 npm run batch ENG-123 ENG-124 ENG-125
 
 # Batch with concurrency
@@ -143,11 +141,11 @@ All configuration is via environment variables (`.env` file for local dev):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | — | Required. Your Anthropic API key |
+| `ANTHROPIC_API_KEY` | *required* | Your Anthropic API key |
 | `MODEL` | `claude-sonnet-4-5-20250929` | Claude model to use |
 | `MAX_TURNS` | `50` | Max agent conversation turns per ticket |
 | `MAX_BUDGET_USD` | `5.00` | Max spend per ticket enhancement |
-| `AUTH_TOKEN` | — | Bearer token for the `/enhance` endpoint |
+| `AUTH_TOKEN` | *none* | Bearer token for the `/enhance` endpoint |
 | `MCP_MODE` | `local` | `local` (reads ~/.claude.json) or `remote` (reads env vars) |
 | `CONCURRENCY` | `1` | Batch mode: how many tickets to process in parallel |
 
@@ -191,7 +189,7 @@ fly deploy
 
 Then update the Chrome extension settings to point at your Fly.io URL (`https://your-app.fly.dev`) and set the auth token.
 
-> **Note:** The Dockerfile runs as a non-root user. This is required — the Claude Agent SDK refuses to run with `--dangerously-skip-permissions` as root for security reasons.
+> **Note:** The Dockerfile runs as a non-root user. This is required because the Claude Agent SDK refuses to run with `--dangerously-skip-permissions` as root for security reasons.
 
 ---
 
@@ -206,7 +204,7 @@ ticket-enhancer/
 │   └── prompt.ts      # System prompt and ticket enhancement instructions
 ├── extension/
 │   ├── manifest.json   # Chrome extension manifest (Manifest V3)
-│   ├── content.js      # Injected into Linear — button + progress panel
+│   ├── content.js      # Injected into Linear: button + progress panel
 │   ├── styles.css      # Extension UI styles
 │   ├── options.html/js # Extension settings (server URL + auth token)
 │   └── icon*.png       # Extension icons
@@ -229,15 +227,15 @@ ticket-enhancer/
 | **Figma** | Design context and component references |
 | **Metabase** | Metrics, saved queries, dashboard data |
 
-The agent prioritizes meeting notes (Notion → Granola) as the richest source of decisions and context, then cross-references other tools based on what the ticket needs.
+The agent prioritizes meeting notes (Notion, then Granola) as the richest source of decisions and context, then cross-references other tools based on what the ticket needs.
 
 ---
 
 ## Why I Built This
 
-I lead product at a startup where velocity matters. We were already using Claude Code and Cursor across the engineering team, but the outputs were inconsistent — because the inputs (tickets) were inconsistent.
+I lead product at a startup where velocity matters. We were already using Claude Code and Cursor across the engineering team, but the outputs were inconsistent because the inputs (tickets) were inconsistent.
 
-The insight was simple: **optimizing for AI means accelerating your team.** When tickets have rich context, AI executes perfectly. When they don't, everyone — human and AI — wastes time asking clarifying questions.
+The insight was simple: **optimizing for AI means accelerating your team.** When tickets have rich context, AI executes perfectly. When they don't, everyone (human and AI) wastes time asking clarifying questions.
 
 So I built a context machine. One interface, all company knowledge, accessible via MCP. PMs write useful tickets in 3 minutes instead of 30. Engineers understand the full "why" without Slack archaeology. New hires onboard in hours by chatting with an LLM about past strategy and metrics.
 
