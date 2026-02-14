@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Ticket Enhancer",
+  "version": "1.1.0",
+  "description": "Enhance Linear tickets with context from Notion, Slack, Sentry, Granola, and more",
+  "permissions": ["storage"],
+  "host_permissions": ["https://linear.app/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://linear.app/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

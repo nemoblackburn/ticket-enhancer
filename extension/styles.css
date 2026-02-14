@@ -1,0 +1,224 @@
+/*
+ * Enhance button — styled to match Linear's triage toolbar buttons
+ * (Accept, Mark as duplicate, Decline, Snooze)
+ */
+.te-enhance-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+.te-enhance-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.te-enhance-btn:active {
+  transform: scale(0.97);
+}
+
+/* When running, show a subtler state */
+.te-enhance-btn.te-running {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.te-enhance-btn .te-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: te-spin 0.7s linear infinite;
+}
+
+/* Enhance button icon color — subtle purple accent to differentiate */
+.te-enhance-btn svg {
+  color: #8264ff;
+}
+
+@keyframes te-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ──────────────────────────────────────────
+   Progress panel
+   ────────────────────────────────────────── */
+.te-panel {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  width: 380px;
+  max-height: 400px;
+  background: #1a1a2e;
+  border: 1px solid rgba(130, 100, 255, 0.3);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  color: #e0e0e0;
+  z-index: 99999;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Minimized state — collapses to just the header pill */
+.te-panel.te-minimized {
+  max-height: 40px;
+  width: 240px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.te-panel.te-minimized .te-panel-body {
+  display: none;
+}
+
+.te-panel.te-minimized .te-panel-header {
+  border-bottom: none;
+  border-radius: 20px;
+}
+
+.te-panel.te-minimized .te-panel-cancel {
+  display: none;
+}
+
+.te-panel.te-minimized .te-panel-minimize svg {
+  /* Rotate — to hint "expand" */
+  transform: rotate(180deg);
+}
+
+/* Panel header */
+.te-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(130, 100, 255, 0.1);
+  border-bottom: 1px solid rgba(130, 100, 255, 0.2);
+  gap: 8px;
+}
+
+.te-panel-title {
+  font-weight: 600;
+  color: #c4b5fd;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Header control buttons container */
+.te-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.te-panel-btn {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  transition: all 0.12s ease;
+}
+
+.te-panel-btn:hover {
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Cancel button — red accent on hover */
+.te-panel-cancel:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.te-panel-cancel span {
+  font-size: 11px;
+}
+
+/* Minimize button */
+.te-panel-minimize svg {
+  transition: transform 0.2s ease;
+}
+
+/* Panel body */
+.te-panel-body {
+  padding: 10px 14px;
+  overflow-y: auto;
+  flex: 1;
+  max-height: 320px;
+}
+
+/* ──────────────────────────────────────────
+   Log entries
+   ────────────────────────────────────────── */
+.te-log-entry {
+  padding: 3px 0;
+  line-height: 1.4;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.te-log-entry.te-tool {
+  color: #c4b5fd;
+  align-items: center;
+}
+
+.te-log-entry.te-status {
+  color: #a0a0a0;
+}
+
+.te-log-entry.te-text {
+  color: #e0e0e0;
+}
+
+.te-log-entry.te-error {
+  color: #ff6b6b;
+}
+
+.te-log-entry.te-done {
+  color: #4ade80;
+  font-weight: 500;
+}
+
+/* ──────────────────────────────────────────
+   App icons in tool-call log entries
+   ────────────────────────────────────────── */
+.te-app-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.te-app-icon svg {
+  width: 14px;
+  height: 14px;
+}

@@ -1,0 +1,20 @@
+{
+  "name": "ticket-enhancer",
+  "version": "1.0.0",
+  "description": "Enhance Linear tickets by cross-referencing context from Notion, Slack, Sentry, Granola, and more",
+  "type": "module",
+  "scripts": {
+    "enhance": "export $(grep -v '^#' .env | grep -v '^$' | xargs) && npx tsx src/enhance.ts",
+    "batch": "export $(grep -v '^#' .env | grep -v '^$' | xargs) && npx tsx src/batch.ts",
+    "serve": "export $(grep -v '^#' .env | grep -v '^$' | xargs) && npx tsx src/server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

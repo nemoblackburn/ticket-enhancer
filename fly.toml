@@ -1,0 +1,38 @@
+# fly.toml — Ticket Enhancer server on Fly.io
+# Deploy: fly launch / fly deploy
+# Set secrets: fly secrets set ANTHROPIC_API_KEY=sk-ant-... AUTH_TOKEN=... MCP_LINEAR_URL=... etc.
+
+app = "ticket-enhancer"
+primary_region = "sjc"  # San Jose — change to your preferred region
+
+[build]
+
+[env]
+  PORT = "8080"
+  MCP_MODE = "remote"
+  MODEL = "claude-sonnet-4-5-20250929"
+  MAX_TURNS = "50"
+  MAX_BUDGET_USD = "5.00"
+  # DEBUG_CLAUDE_AGENT_SDK = "1"  # Uncomment to see SDK subprocess stderr in logs
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  # SSE streams can be long-running (several minutes)
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 10
+    soft_limit = 5
+
+# Keep connections alive for SSE streaming
+[http_service.http_options]
+  idle_timeout = 600  # 10 minutes — enhancement can take a while
+
+[[vm]]
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 1
