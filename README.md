@@ -4,8 +4,6 @@
 
 A Chrome extension + server that turns sparse Linear tickets into comprehensive, AI-actionable specs by pulling context from every tool your team already uses.
 
-https://github.com/user-attachments/assets/placeholder
-
 ---
 
 ## The Problem
