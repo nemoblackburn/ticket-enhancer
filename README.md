@@ -10,13 +10,13 @@ A Chrome extension + server that turns sparse Linear tickets into comprehensive,
 
 Your AI is only as good as the context it has access to.
 
-Most teams have context scattered across 7+ tools: meeting notes in Notion, decisions in Slack, bugs in Sentry, metrics in Metabase, designs in Figma, transcripts in Granola. When a PM writes a ticket, they're working from memory. When an engineer picks it up, they're doing 30 minutes of archaeology before they can start building.
+Most teams have context scattered across 7+ tools: specs in Notion, discussions in Slack, bugs in Sentry, metrics in Metabase, designs in Figma, meeting transcripts in Granola. When a PM writes a ticket, they either work from memory or surf across the stack of tools. When an engineer picks it up, they likely have to continue surfing to fill in gaps before they can start building.
 
 And when AI agents try to implement those tickets? They hallucinate requirements because the ticket says "add dark mode" with no other context.
 
 **Ticket Enhancer solves this by connecting all your tools through MCP and using Claude to synthesize the full picture, automatically.**
 
-The result: tickets that are detailed enough for both humans and AI agents to execute without asking clarifying questions. What used to take 30 minutes of manual context-gathering now takes 3 minutes and one click.
+The result: tickets that are detailed enough for both humans and AI agents to execute. What used to take 30 minutes of manual context-gathering now takes a few minutes and one click.
 
 > Context at scale = velocity that compounds.
 
@@ -43,7 +43,7 @@ graph LR
 4. It synthesizes everything into a structured, actionable ticket description
 5. It updates the Linear ticket directly while you watch the progress panel
 
-The Chrome extension streams real-time progress via SSE, showing you exactly which tools the agent is querying with branded icons for each service.
+The Chrome extension streams real-time progress via SSE, showing you exactly which tools the agent is using.
 
 ---
 
