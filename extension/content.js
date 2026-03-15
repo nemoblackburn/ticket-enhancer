@@ -133,6 +133,7 @@ function getHeaders() {
 function createCodeBlock() {
   const wrapper = document.createElement("div");
   wrapper.className = "te-code-block";
+  wrapper.style.cssText = "display:flex;align-items:center;justify-content:space-between;background:#0d0d1a;border:1px solid #333;border-radius:6px;padding:8px 10px;margin:8px 0;gap:8px;";
 
   const code = document.createElement("span");
   code.textContent = "npx ticket-enhancer";
