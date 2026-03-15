@@ -1,6 +1,6 @@
 {
   "name": "ticket-enhancer",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Enhance Linear tickets by cross-referencing context from Notion, Slack, Sentry, Granola, and more",
   "type": "module",
   "bin": {

@@ -11,13 +11,14 @@
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 4px;
   background: transparent;
-  color: inherit;
+  color: #6b4fdb;
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   transition: all 0.12s ease;
   white-space: nowrap;
+  margin-left: 12px;
   margin-right: 4px;
 }
 
@@ -243,7 +244,7 @@
 .te-code-block code {
   font-family: "SF Mono", "Fira Code", "Consolas", monospace;
   font-size: 13px;
-  color: #c4b5fd;
+  color: #e8e0ff;
   user-select: all;
 }
 

@@ -60,10 +60,25 @@ testBtn.addEventListener("click", async () => {
     }
     const data = await resp.json();
 
-    // Show MCP servers with green dots
+    // Show MCP servers with status dots (mirrors Claude Code /mcp)
     if (data.mcpServers && data.mcpServers.length > 0) {
+      const statusColors = {
+        connected: "#4ade80", auth_error: "#facc15",
+        error: "#f87171", unknown: "#a0a0a0", not_found: "#f87171",
+      };
+      const statusLabels = {
+        connected: "", auth_error: "(needs auth)",
+        error: "(unreachable)", unknown: "", not_found: "(not found)",
+      };
       mcpServerListEl.innerHTML = data.mcpServers
-        .map((name) => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#ccc;"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;"></span> ${name}</span>`)
+        .map((s) => {
+          const name = typeof s === "string" ? s : s.name;
+          const status = typeof s === "string" ? "connected" : (s.status || "connected");
+          const color = statusColors[status] || "#a0a0a0";
+          const label = statusLabels[status] || "";
+          const labelHtml = label ? ` <span style="color:#888;font-size:10px;">${label}</span>` : "";
+          return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#ccc;"><span style="width:6px;height:6px;border-radius:50%;background:${color};"></span> ${name}${labelHtml}</span>`;
+        })
         .join("");
       mcpServersEl.style.display = "block";
       showStatus(`Connected! Model: ${data.model}`, "success");

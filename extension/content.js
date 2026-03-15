@@ -223,7 +223,8 @@ function markOnboardingComplete() {
 
 // ── Setup Hint (fixed-position, bottom-right) ────────────────────
 
-// Render MCP server names with green dots
+// Render MCP server list with status dots (mirrors Claude Code /mcp output)
+// Server format: { name, status, type } or plain string (legacy)
 function renderMcpServerList(servers) {
   const list = document.createElement("div");
   list.className = "te-mcp-server-list";
@@ -231,10 +232,34 @@ function renderMcpServerList(servers) {
     list.innerHTML = `<span class="te-mcp-none">No MCP servers found — check ~/.claude.json</span>`;
     return list;
   }
-  for (const name of servers) {
+
+  const statusColors = {
+    connected: "#4ade80",   // green
+    auth_error: "#facc15",  // yellow
+    error: "#f87171",       // red
+    unknown: "#a0a0a0",     // grey
+    not_found: "#f87171",   // red
+  };
+
+  const statusLabels = {
+    connected: "",
+    auth_error: "(needs auth)",
+    error: "(unreachable)",
+    unknown: "",
+    not_found: "(not found)",
+  };
+
+  for (const server of servers) {
+    // Support both { name, status } objects and plain strings
+    const name = typeof server === "string" ? server : server.name;
+    const status = typeof server === "string" ? "connected" : (server.status || "connected");
+
     const item = document.createElement("span");
     item.className = "te-mcp-server-item";
-    item.innerHTML = `<span class="te-mcp-dot"></span> ${escapeHtml(name)}`;
+    const dotColor = statusColors[status] || "#a0a0a0";
+    const label = statusLabels[status] || "";
+    const labelHtml = label ? ` <span style="color:#888;font-size:10px;">${label}</span>` : "";
+    item.innerHTML = `<span class="te-mcp-dot" style="background:${dotColor}"></span> ${escapeHtml(name)}${labelHtml}`;
     list.appendChild(item);
   }
   return list;
@@ -495,7 +520,7 @@ window.addEventListener("beforeunload", () => {
 function createButton() {
   const btn = document.createElement("button");
   btn.className = "te-enhance-btn";
-  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg> Enhance`;
+  btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 1l-2 6-6 2 6 2 2 6 2-6 6-2-6-2-2-6z" fill="currentColor"/></svg> Enhance`;
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -590,7 +615,7 @@ function cancelEnhancement() {
 function resetButton() {
   if (enhanceBtn) {
     enhanceBtn.classList.remove("te-running");
-    enhanceBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg> Enhance`;
+    enhanceBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 1l-2 6-6 2 6 2 2 6 2-6 6-2-6-2-2-6z" fill="currentColor"/></svg> Enhance`;
   }
 }
 
@@ -806,7 +831,10 @@ function tryInsertStrategies(btn, ticketId) {
     }
   }
 
-  // Strategy 2: Look for a breadcrumb or identifier that matches the ticket ID
+  // Strategy 2: Look for a breadcrumb or identifier that matches the ticket ID,
+  // then insert the button at the END of the full header row (after ☆ and ... icons).
+  // The header row structure is: [breadcrumb] [title] [☆ button div] [... button div]
+  // We need the outermost row containing both the ticket ID and the star/more buttons.
   const allElements = document.querySelectorAll("span, a, div, h1, h2");
   for (const el of allElements) {
     if (
@@ -816,7 +844,17 @@ function tryInsertStrategies(btn, ticketId) {
       !el.closest(".te-setup-hint") &&
       !el.closest(".te-setup-modal")
     ) {
-      el.parentElement.insertBefore(btn, el.nextSibling);
+      // Walk up to find the row that also contains the favorites (star) button
+      let row = el.parentElement;
+      for (let i = 0; i < 5; i++) {
+        if (!row.parentElement) break;
+        if (row.parentElement.querySelector('[aria-label="Add to favorites"], [aria-label="More actions"]')) {
+          row = row.parentElement;
+          break;
+        }
+        row = row.parentElement;
+      }
+      row.appendChild(btn);
       return true;
     }
   }
