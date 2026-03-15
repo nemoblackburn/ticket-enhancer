@@ -134,8 +134,12 @@ function createCodeBlock() {
   const wrapper = document.createElement("div");
   wrapper.className = "te-code-block";
 
-  const code = document.createElement("code");
+  const code = document.createElement("span");
   code.textContent = "npx ticket-enhancer";
+  code.style.fontFamily = '"SF Mono", "Fira Code", "Consolas", monospace';
+  code.style.fontSize = "13px";
+  code.style.color = "#c4b5fd";
+  code.style.userSelect = "all";
 
   const copyBtn = document.createElement("button");
   copyBtn.className = "te-copy-btn";
