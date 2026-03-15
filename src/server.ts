@@ -1,6 +1,11 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { SYSTEM_PROMPT, makePrompt } from "./prompt.js";
+
+const VERSION = "1.4.0";
 
 const PORT = parseInt(process.env.PORT || "7842", 10);
 const model = process.env.MODEL || "claude-sonnet-4-5-20250929";
@@ -54,6 +59,89 @@ function getMcpConfig(): Record<string, unknown> | undefined {
 
 const mcpServers = getMcpConfig();
 
+// ── MCP server status for /health endpoint ───────────────────────
+// Probes each configured server at startup and reports status:
+//   connected  — server responded (any HTTP status)
+//   auth_error — server returned 401/403
+//   error      — server unreachable / timed out
+//   unknown    — command-based server (can't probe, assumed ok if binary exists)
+//   not_found  — command binary missing
+
+type McpServerStatus = {
+  name: string;
+  status: "connected" | "auth_error" | "error" | "unknown" | "not_found";
+  type: "http" | "command" | "unknown";
+};
+
+let cachedMcpServers: McpServerStatus[] = [];
+
+async function probeMcpServers(): Promise<McpServerStatus[]> {
+  if (mcpMode !== "local") {
+    return Object.keys(mcpServers || {}).map((name) => ({
+      name,
+      status: "unknown" as const,
+      type: "http" as const,
+    }));
+  }
+
+  let claudeConfig: Record<string, any>;
+  try {
+    const claudeConfigPath = join(homedir(), ".claude.json");
+    claudeConfig = JSON.parse(readFileSync(claudeConfigPath, "utf-8"));
+  } catch {
+    console.warn("[health] Could not read ~/.claude.json — mcpServers will be empty");
+    return [];
+  }
+
+  const entries = Object.entries(claudeConfig.mcpServers || {}) as [string, any][];
+  const results = await Promise.allSettled(
+    entries.map(async ([name, cfg]): Promise<McpServerStatus> => {
+      if (cfg.type === "http" && cfg.url) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        try {
+          const resp = await fetch(cfg.url, {
+            method: "OPTIONS",
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (resp.status === 401 || resp.status === 403) {
+            return { name, status: "auth_error", type: "http" };
+          }
+          return { name, status: "connected", type: "http" };
+        } catch {
+          clearTimeout(timeout);
+          return { name, status: "error", type: "http" };
+        }
+      }
+
+      if (cfg.command) {
+        try {
+          const { existsSync } = await import("node:fs");
+          if (existsSync(cfg.command)) {
+            return { name, status: "unknown", type: "command" };
+          }
+        } catch {}
+        return { name, status: "not_found", type: "command" };
+      }
+
+      return { name, status: "unknown", type: "unknown" };
+    })
+  );
+
+  return results.map((r) =>
+    r.status === "fulfilled"
+      ? r.value
+      : { name: "unknown", status: "error" as const, type: "unknown" as const }
+  );
+}
+
+// Probe runs async at startup; /health serves whatever is resolved so far
+const mcpProbePromise = probeMcpServers().then((servers) => {
+  cachedMcpServers = servers;
+  return servers;
+});
+
 // ── Helpers ───────────────────────────────────────────────────────
 
 function cors(res: ServerResponse) {
@@ -85,7 +173,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   // Health check (no auth required)
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", model, mcpMode }));
+    res.end(JSON.stringify({
+      status: "ok",
+      version: VERSION,
+      model,
+      mcpMode,
+      mcpServers: cachedMcpServers,
+    }));
     return;
   }
 
@@ -97,9 +191,11 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     for await (const chunk of req) body += chunk;
 
     let ticketId: string;
+    let extraInstructions: string | undefined;
     try {
       const parsed = JSON.parse(body);
       ticketId = parsed.ticketId;
+      extraInstructions = parsed.extraInstructions || undefined;
     } catch {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Invalid JSON. Expected: { ticketId: \"TAP-123\" }" }));
@@ -141,9 +237,15 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
     try {
       console.log(`[enhance] Starting enhancement for ${ticketId}`);
-      console.log(`[enhance] Model: ${model}, MCP servers: ${mcpServers ? Object.keys(mcpServers).join(", ") : "none (local mode)"}`);
+      const connectedServers = cachedMcpServers
+        .filter((s) => s.status === "connected" || s.status === "unknown")
+        .map((s) => s.name);
+      console.log(`[enhance] Model: ${model}, MCP servers: ${connectedServers.join(", ") || "none"}`);
 
       // Build query options — differs between local and remote mode
+      // Dynamically allow tools from all connected/available MCP servers
+      const allowedTools = connectedServers.map((name) => `mcp__${name}__*`);
+
       const queryOptions: Record<string, unknown> = {
         model,
         systemPrompt: SYSTEM_PROMPT,
@@ -152,15 +254,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         maxTurns,
         maxBudgetUsd: maxBudget,
         tools: [],
-        allowedTools: [
-          "mcp__linear-server__*",
-          "mcp__granola__*",
-          "mcp__slack__*",
-          "mcp__sentry__*",
-          "mcp__notion__*",
-          "mcp__Figma__*",
-          "mcp__metabase-server__*",
-        ],
+        allowedTools,
         persistSession: false,
         abortController,
       };
@@ -175,7 +269,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
       console.log(`[enhance] Calling query() for ${ticketId}...`);
       for await (const message of query({
-        prompt: makePrompt(ticketId),
+        prompt: makePrompt(ticketId, extraInstructions),
         options: queryOptions as any,
       })) {
         // If client disconnected, stop processing
@@ -245,11 +339,40 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   res.end(JSON.stringify({ error: "Not found" }));
 });
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", async () => {
   console.log(`Ticket Enhancer server running on http://localhost:${PORT}`);
   console.log(`Model: ${model} | Max turns: ${maxTurns} | Max budget: $${maxBudget}`);
-  console.log(`MCP mode: ${mcpMode}${mcpServers ? ` (${Object.keys(mcpServers).length} servers configured)` : ""}`);
   console.log(`Auth: ${authToken ? "enabled" : "disabled (set AUTH_TOKEN to enable)"}`);
+
+  // Wait for MCP probe to finish before printing server list
+  console.log(`\nChecking MCP servers...`);
+  const servers = await mcpProbePromise;
+
+  const statusIcon: Record<string, string> = {
+    connected: "●",   // green in terminal
+    auth_error: "▲",  // needs auth
+    error: "✕",       // unreachable
+    unknown: "○",     // can't verify (command-based)
+    not_found: "✕",   // binary missing
+  };
+
+  const statusLabel: Record<string, string> = {
+    connected: "connected",
+    auth_error: "needs auth",
+    error: "unreachable",
+    unknown: "installed",
+    not_found: "not found",
+  };
+
+  if (servers.length > 0) {
+    console.log(`MCP servers (from ${mcpMode === "local" ? "~/.claude.json" : "environment"}):`);
+    for (const s of servers) {
+      console.log(`  ${statusIcon[s.status]} ${s.name} — ${statusLabel[s.status]}`);
+    }
+  } else {
+    console.log(`MCP servers: none configured${mcpMode === "local" ? " (check ~/.claude.json)" : ""}`);
+  }
+
   console.log(`\nEndpoints:`);
   console.log(`  GET  /health   — Health check`);
   console.log(`  POST /enhance  — Enhance a ticket (SSE stream)`);
