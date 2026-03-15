@@ -1,16 +1,60 @@
 // Ticket Enhancer — Content Script for Linear
 // Injects an "Enhance" button on Linear issue pages
 
+// ── Onboarding State Machine ─────────────────────────────────────
+//
+//   ON ISSUE PAGE LOAD:
+//     onboardingComplete? ─── YES ──▶ skip (extension works as before)
+//                          │
+//                          NO
+//                          │
+//                     ping /health
+//                      ┌───┴───┐
+//                      OK    FAIL
+//                      │       │
+//                      ▼       ├─ dismissed? ── YES ──▶ skip
+//                  set complete │
+//                  done         NO
+//                               │
+//                               ▼
+//                          SETUP HINT (fixed, bottom-right)
+//                           │         │           │
+//                       [Dismiss]  [Poll 5s]  [Click Enhance]
+//                           │         │           │
+//                        hide hint    │      SETUP MODAL
+//                        stop poll    │       │        │
+//                                     │   [Poll 5s] [Close]
+//                                     │       │        │
+//                                     ▼       ▼     hide modal
+//                                Server detected    stop poll
+//                                     │
+//                              set onboardingComplete
+//                              ├─ from hint: show MCP servers + extra instructions
+//                              │             [Save] or [Skip] → hide hint
+//                              └─ from modal: auto-start enhancement
+//
+
 // Default server URL — overridden by extension settings
 let SERVER_URL = "http://localhost:7842";
 let AUTH_TOKEN = "";
 
+// Onboarding state
+let onboardingComplete = false;
+let onboardingDismissed = false;
+let extraInstructions = "";
+
 // Load saved settings from chrome.storage
 if (typeof chrome !== "undefined" && chrome.storage) {
-  chrome.storage.sync.get(["serverUrl", "authToken"], (result) => {
-    if (result.serverUrl) SERVER_URL = result.serverUrl.replace(/\/+$/, "");
-    if (result.authToken) AUTH_TOKEN = result.authToken;
-  });
+  chrome.storage.sync.get(
+    ["serverUrl", "authToken", "onboardingComplete", "onboardingDismissed", "extraInstructions"],
+    (result) => {
+      if (result.serverUrl) SERVER_URL = result.serverUrl.replace(/\/+$/, "");
+      if (result.authToken) AUTH_TOKEN = result.authToken;
+      onboardingComplete = !!result.onboardingComplete;
+      onboardingDismissed = !!result.onboardingDismissed;
+      extraInstructions = result.extraInstructions || "";
+    }
+  );
 }
 
 let currentTicketId = null;
@@ -18,6 +62,11 @@ let enhanceBtn = null;
 let panel = null;
 let currentAbortController = null;
 let isEnhancing = false;
+
+// Onboarding UI elements
+let setupHint = null;
+let setupModal = null;
+let healthPoller = null;
 
 // MCP app logo SVGs (inline for content script — no external requests)
 const APP_ICONS = {
@@ -78,12 +127,377 @@ function getHeaders() {
   return headers;
 }
 
+// ── Shared Onboarding Helpers ────────────────────────────────────
+
+// Create a styled code block with copy button for "npx ticket-enhancer"
+function createCodeBlock() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "te-code-block";
+
+  const code = document.createElement("code");
+  code.textContent = "npx ticket-enhancer";
+
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "te-copy-btn";
+  copyBtn.textContent = "Copy";
+  copyBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText("npx ticket-enhancer");
+    } catch {
+      // Fallback: select + execCommand
+      const textarea = document.createElement("textarea");
+      textarea.value = "npx ticket-enhancer";
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    copyBtn.textContent = "Copied!";
+    setTimeout(() => { copyBtn.textContent = "Copy"; }, 2000);
+  });
+
+  wrapper.appendChild(code);
+  wrapper.appendChild(copyBtn);
+  return wrapper;
+}
+
+// Create a polling status indicator that shows "Waiting..." or "Connected!"
+function createPollingIndicator() {
+  const el = document.createElement("div");
+  el.className = "te-polling-status te-polling-waiting";
+  el.innerHTML = `<div class="te-spinner-small"></div> <span>Waiting for server...</span>`;
+
+  el.setConnected = () => {
+    el.className = "te-polling-status te-polling-connected";
+    el.innerHTML = `<span>Connected! You're ready to enhance.</span>`;
+  };
+
+  return el;
+}
+
+// Start polling /health every 5s. Returns { stop() } handle.
+function startHealthPolling(onDetected) {
+  if (healthPoller) {
+    clearInterval(healthPoller);
+  }
+
+  const poll = async () => {
+    try {
+      const resp = await fetch(`${SERVER_URL}/health`, {
+        headers: getHeaders(),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        clearInterval(healthPoller);
+        healthPoller = null;
+        onDetected(data);
+      }
+    } catch {
+      // Server not up yet — keep polling
+    }
+  };
+
+  // Poll immediately, then every 5s
+  poll();
+  healthPoller = setInterval(poll, 5000);
+
+  return {
+    stop() {
+      if (healthPoller) {
+        clearInterval(healthPoller);
+        healthPoller = null;
+      }
+    },
+  };
+}
+
+function markOnboardingComplete() {
+  onboardingComplete = true;
+  if (typeof chrome !== "undefined" && chrome.storage) {
+    chrome.storage.sync.set({ onboardingComplete: true });
+  }
+}
+
+// ── Setup Hint (fixed-position, bottom-right) ────────────────────
+
+// Render MCP server names with green dots
+function renderMcpServerList(servers) {
+  const list = document.createElement("div");
+  list.className = "te-mcp-server-list";
+  if (!servers || servers.length === 0) {
+    list.innerHTML = `<span class="te-mcp-none">No MCP servers found — check ~/.claude.json</span>`;
+    return list;
+  }
+  for (const name of servers) {
+    const item = document.createElement("span");
+    item.className = "te-mcp-server-item";
+    item.innerHTML = `<span class="te-mcp-dot"></span> ${escapeHtml(name)}`;
+    list.appendChild(item);
+  }
+  return list;
+}
+
+function showSetupHint() {
+  if (setupHint || onboardingComplete || onboardingDismissed) return;
+
+  const el = document.createElement("div");
+  el.className = "te-setup-hint";
+
+  const title = document.createElement("div");
+  title.className = "te-setup-hint-title";
+  title.textContent = "Set up Ticket Enhancer";
+
+  const desc = document.createElement("div");
+  desc.className = "te-setup-hint-desc";
+  desc.innerHTML = "Run this in your terminal. Uses MCP servers from your <strong>Claude Code</strong> config (~/.claude.json):";
+
+  const codeBlock = createCodeBlock();
+  const indicator = createPollingIndicator();
+
+  const dismiss = document.createElement("button");
+  dismiss.className = "te-setup-hint-dismiss";
+  dismiss.textContent = "Dismiss";
+  dismiss.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dismissSetupHint();
+  });
+
+  const footer = document.createElement("div");
+  footer.className = "te-setup-hint-footer";
+  footer.appendChild(indicator);
+  footer.appendChild(dismiss);
+
+  el.appendChild(title);
+  el.appendChild(desc);
+  el.appendChild(codeBlock);
+  el.appendChild(footer);
+
+  document.body.appendChild(el);
+  setupHint = el;
+
+  // Start polling — when server detected, show servers + extra instructions
+  startHealthPolling((healthData) => {
+    markOnboardingComplete();
+    if (typeof chrome !== "undefined" && chrome.storage) {
+      chrome.storage.sync.set({ serverUrl: SERVER_URL });
+    }
+
+    // Transform hint into connected state with server list + extra instructions
+    el.innerHTML = "";
+
+    const connTitle = document.createElement("div");
+    connTitle.className = "te-setup-hint-title";
+    connTitle.textContent = "Connected to Ticket Enhancer";
+    el.appendChild(connTitle);
+
+    // MCP server list with green dots
+    const serverList = renderMcpServerList(healthData.mcpServers);
+    el.appendChild(serverList);
+
+    // Extra instructions textarea
+    const tipsLabel = document.createElement("div");
+    tipsLabel.className = "te-setup-hint-desc";
+    tipsLabel.style.marginTop = "10px";
+    tipsLabel.textContent = "Tips for the AI (optional)";
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "te-extra-instructions";
+    textarea.placeholder = "e.g., Meeting notes are in Notion DB X, check #eng-backend on Slack, Sentry org is 'mycompany'";
+    textarea.value = extraInstructions;
+
+    const btnRow = document.createElement("div");
+    btnRow.className = "te-setup-hint-footer";
+    btnRow.style.marginTop = "10px";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "te-setup-hint-save";
+    saveBtn.textContent = "Save";
+    saveBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      extraInstructions = textarea.value;
+      if (typeof chrome !== "undefined" && chrome.storage) {
+        chrome.storage.sync.set({ extraInstructions });
+      }
+      hideSetupHint();
+    });
+
+    const skipBtn = document.createElement("button");
+    skipBtn.className = "te-setup-hint-dismiss";
+    skipBtn.textContent = "Skip";
+    skipBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideSetupHint();
+    });
+
+    btnRow.appendChild(skipBtn);
+    btnRow.appendChild(saveBtn);
+
+    el.appendChild(tipsLabel);
+    el.appendChild(textarea);
+    el.appendChild(btnRow);
+  });
+}
+
+function hideSetupHint() {
+  if (setupHint) {
+    setupHint.remove();
+    setupHint = null;
+  }
+  if (healthPoller && !setupModal) {
+    clearInterval(healthPoller);
+    healthPoller = null;
+  }
+}
+
+function dismissSetupHint() {
+  onboardingDismissed = true;
+  if (typeof chrome !== "undefined" && chrome.storage) {
+    chrome.storage.sync.set({ onboardingDismissed: true });
+  }
+  hideSetupHint();
+}
+
+// ── Setup Modal (replaces alert on Enhance click) ────────────────
+
+function showSetupModal() {
+  if (setupModal) return;
+
+  // Hide the hint if it's showing
+  hideSetupHint();
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "te-setup-modal-backdrop";
+
+  const modal = document.createElement("div");
+  modal.className = "te-setup-modal";
+
+  const title = document.createElement("div");
+  title.className = "te-setup-modal-title";
+  title.textContent = "Ticket Enhancer — Setup Required";
+
+  const desc = document.createElement("div");
+  desc.className = "te-setup-modal-desc";
+  desc.innerHTML = "The enhancement server isn't running yet. Run this in your terminal.<br>Uses MCP servers from your <strong>Claude Code</strong> config (~/.claude.json):";
+
+  const codeBlock = createCodeBlock();
+
+  const prereqs = document.createElement("div");
+  prereqs.className = "te-setup-modal-prereqs";
+  prereqs.innerHTML = `
+    <div class="te-setup-modal-prereqs-title">Prerequisites:</div>
+    <ul>
+      <li>Node.js 18+</li>
+      <li>Anthropic API key (you'll be prompted)</li>
+      <li>MCP servers in ~/.claude.json (Linear, Notion, Slack, etc.)</li>
+    </ul>
+  `;
+
+  const indicator = createPollingIndicator();
+
+  const footerLinks = document.createElement("div");
+  footerLinks.className = "te-setup-modal-footer";
+
+  const settingsLink = document.createElement("button");
+  settingsLink.className = "te-setup-modal-link";
+  settingsLink.textContent = "Using a different server URL?";
+  settingsLink.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      chrome.runtime.openOptionsPage();
+    }
+  });
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "te-setup-modal-close";
+  closeBtn.textContent = "Close";
+  closeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    hideSetupModal();
+  });
+
+  footerLinks.appendChild(settingsLink);
+  footerLinks.appendChild(closeBtn);
+
+  modal.appendChild(title);
+  modal.appendChild(desc);
+  modal.appendChild(codeBlock);
+  modal.appendChild(prereqs);
+  modal.appendChild(indicator);
+  modal.appendChild(footerLinks);
+
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) hideSetupModal();
+  });
+
+  document.body.appendChild(backdrop);
+  setupModal = backdrop;
+
+  // Start polling — on detection, auto-start enhancement
+  startHealthPolling((healthData) => {
+    markOnboardingComplete();
+    if (typeof chrome !== "undefined" && chrome.storage) {
+      chrome.storage.sync.set({ serverUrl: SERVER_URL });
+    }
+    hideSetupModal();
+    // Auto-start the enhancement the user originally requested
+    onEnhanceClick();
+  });
+}
+
+function hideSetupModal() {
+  if (setupModal) {
+    setupModal.remove();
+    setupModal = null;
+  }
+  if (healthPoller && !setupHint) {
+    clearInterval(healthPoller);
+    healthPoller = null;
+  }
+}
+
+// ── Onboarding Entry Point ───────────────────────────────────────
+
+async function checkOnboarding() {
+  if (onboardingComplete || onboardingDismissed) return;
+
+  const ticketId = getTicketIdFromUrl();
+  if (!ticketId) return; // Only show on issue pages
+
+  // Quick health check — if server is already running, mark complete silently
+  try {
+    const resp = await fetch(`${SERVER_URL}/health`, { headers: getHeaders() });
+    if (resp.ok) {
+      markOnboardingComplete();
+      return;
+    }
+  } catch {
+    // Server not running — show the setup hint
+  }
+
+  showSetupHint();
+}
+
+// Clean up polling on tab close
+window.addEventListener("beforeunload", () => {
+  if (healthPoller) {
+    clearInterval(healthPoller);
+    healthPoller = null;
+  }
+});
+
+// ── UI Components ────────────────────────────────────────────────
+
 // Create the Enhance button
 function createButton() {
   const btn = document.createElement("button");
   btn.className = "te-enhance-btn";
   btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg> Enhance`;
   btn.addEventListener("click", (e) => {
+    e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
     onEnhanceClick();
@@ -99,7 +513,7 @@ function createPanel(ticketId) {
   el.className = "te-panel";
   el.innerHTML = `
     <div class="te-panel-header">
-      <span class="te-panel-title">Enhancing ${ticketId}</span>
+      <span class="te-panel-title">Enhancing ${escapeHtml(ticketId)}</span>
       <div class="te-panel-controls">
         <button class="te-panel-btn te-panel-cancel" title="Cancel enhancement">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -200,7 +614,8 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// Handle Enhance click
+// ── Enhance Click Handler ────────────────────────────────────────
+
 async function onEnhanceClick() {
   if (isEnhancing) return; // Prevent double-clicks
 
@@ -210,14 +625,12 @@ async function onEnhanceClick() {
     return;
   }
 
-  // Check server health
+  // Check server health — show setup modal instead of alert if not reachable
   try {
     const health = await fetch(`${SERVER_URL}/health`, { headers: getHeaders() });
     if (!health.ok) throw new Error("Server not responding");
   } catch {
-    alert(
-      `Ticket Enhancer server is not reachable at:\n${SERVER_URL}\n\nIf running locally:\n  cd ticket-enhancer && npm run serve\n\nOr configure a remote server URL in the extension options.`
-    );
+    showSetupModal();
     return;
   }
 
@@ -240,7 +653,7 @@ async function onEnhanceClick() {
     const response = await fetch(`${SERVER_URL}/enhance`, {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ ticketId }),
+      body: JSON.stringify({ ticketId, extraInstructions: extraInstructions || undefined }),
       signal: currentAbortController.signal,
     });
 
@@ -336,15 +749,18 @@ function handleSSE(event, data) {
   }
 }
 
+// ── Button Injection ─────────────────────────────────────────────
+
 // Try to inject the button into Linear's issue header
 function injectButton() {
   const ticketId = getTicketIdFromUrl();
   if (!ticketId) {
-    // Not on an issue page — remove button if it exists
+    // Not on an issue page — remove button and hint if they exist
     if (enhanceBtn) {
       enhanceBtn.remove();
       enhanceBtn = null;
     }
+    hideSetupHint();
     currentTicketId = null;
     return;
   }
@@ -368,6 +784,9 @@ function injectButton() {
 
   if (inserted) {
     enhanceBtn = btn;
+
+    // Trigger onboarding check after button is injected
+    checkOnboarding();
   }
 }
 
@@ -393,7 +812,9 @@ function tryInsertStrategies(btn, ticketId) {
     if (
       el.textContent.trim() === ticketId &&
       el.offsetParent !== null &&
-      !el.closest(".te-panel")
+      !el.closest(".te-panel") &&
+      !el.closest(".te-setup-hint") &&
+      !el.closest(".te-setup-modal")
     ) {
       el.parentElement.insertBefore(btn, el.nextSibling);
       return true;
@@ -418,6 +839,8 @@ function tryInsertStrategies(btn, ticketId) {
 
   return false;
 }
+
+// ── SPA Navigation Detection ─────────────────────────────────────
 
 // Observe DOM changes to re-inject when Linear navigates (SPA)
 const observer = new MutationObserver(() => {

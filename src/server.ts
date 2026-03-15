@@ -1,6 +1,11 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { SYSTEM_PROMPT, makePrompt } from "./prompt.js";
+
+const VERSION = "1.2.0";
 
 const PORT = parseInt(process.env.PORT || "7842", 10);
 const model = process.env.MODEL || "claude-sonnet-4-5-20250929";
@@ -54,6 +59,21 @@ function getMcpConfig(): Record<string, unknown> | undefined {
 
 const mcpServers = getMcpConfig();
 
+// ── Cached MCP server names for /health endpoint ─────────────────
+// Read once at startup to avoid filesystem reads on every health poll.
+let cachedMcpServerNames: string[] = [];
+if (mcpMode === "local") {
+  try {
+    const claudeConfigPath = join(homedir(), ".claude.json");
+    const claudeConfig = JSON.parse(readFileSync(claudeConfigPath, "utf-8"));
+    cachedMcpServerNames = Object.keys(claudeConfig.mcpServers || {});
+  } catch {
+    console.warn("[health] Could not read ~/.claude.json — mcpServers will be empty in /health response");
+  }
+} else {
+  cachedMcpServerNames = Object.keys(mcpServers || {});
+}
+
 // ── Helpers ───────────────────────────────────────────────────────
 
 function cors(res: ServerResponse) {
@@ -85,7 +105,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   // Health check (no auth required)
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", model, mcpMode }));
+    res.end(JSON.stringify({
+      status: "ok",
+      version: VERSION,
+      model,
+      mcpMode,
+      mcpServers: cachedMcpServerNames,
+    }));
     return;
   }
 
@@ -97,9 +123,11 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     for await (const chunk of req) body += chunk;
 
     let ticketId: string;
+    let extraInstructions: string | undefined;
     try {
       const parsed = JSON.parse(body);
       ticketId = parsed.ticketId;
+      extraInstructions = parsed.extraInstructions || undefined;
     } catch {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Invalid JSON. Expected: { ticketId: \"TAP-123\" }" }));
@@ -175,7 +203,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
       console.log(`[enhance] Calling query() for ${ticketId}...`);
       for await (const message of query({
-        prompt: makePrompt(ticketId),
+        prompt: makePrompt(ticketId, extraInstructions),
         options: queryOptions as any,
       })) {
         // If client disconnected, stop processing
@@ -248,8 +276,18 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Ticket Enhancer server running on http://localhost:${PORT}`);
   console.log(`Model: ${model} | Max turns: ${maxTurns} | Max budget: $${maxBudget}`);
-  console.log(`MCP mode: ${mcpMode}${mcpServers ? ` (${Object.keys(mcpServers).length} servers configured)` : ""}`);
   console.log(`Auth: ${authToken ? "enabled" : "disabled (set AUTH_TOKEN to enable)"}`);
+
+  // Show MCP servers with indicators
+  if (cachedMcpServerNames.length > 0) {
+    console.log(`\nMCP servers (from ${mcpMode === "local" ? "~/.claude.json" : "environment"}):`);
+    for (const name of cachedMcpServerNames) {
+      console.log(`  ● ${name}`);
+    }
+  } else {
+    console.log(`\nMCP servers: none found${mcpMode === "local" ? " (check ~/.claude.json)" : ""}`);
+  }
+
   console.log(`\nEndpoints:`);
   console.log(`  GET  /health   — Health check`);
   console.log(`  POST /enhance  — Enhance a ticket (SSE stream)`);

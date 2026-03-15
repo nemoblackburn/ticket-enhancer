@@ -88,6 +88,31 @@
     .status.success { color: #4ade80; }
     .status.error { color: #f87171; }
     .status.info { color: #8264ff; }
+    .getting-started {
+      background: rgba(130, 100, 255, 0.08);
+      border: 1px solid rgba(130, 100, 255, 0.2);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+    }
+    .getting-started-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #c4b5fd;
+      margin-bottom: 6px;
+    }
+    .getting-started-body {
+      font-size: 12px;
+      color: #aaa;
+      line-height: 1.5;
+    }
+    .getting-started-body code {
+      background: #16162a;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 12px;
+      color: #c4b5fd;
+    }
   </style>
 </head>
 <body>
@@ -95,6 +120,14 @@
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
     Ticket Enhancer
   </h2>
+
+  <div id="gettingStarted" class="getting-started" style="display:none;">
+    <div class="getting-started-title">Getting Started</div>
+    <div class="getting-started-body">
+      Run <code>npx ticket-enhancer</code> in your terminal to start the server.
+      You'll need Node.js 18+ and an Anthropic API key.
+    </div>
+  </div>
 
   <div class="field">
     <label for="serverUrl">Server URL</label>
@@ -106,6 +139,17 @@
     <label for="authToken">Auth Token</label>
     <input type="password" id="authToken" placeholder="Optional — leave blank for local dev" />
     <div class="hint">Bearer token matching the server's AUTH_TOKEN</div>
+  </div>
+
+  <div class="field">
+    <label for="extraInstructions">Tips for the AI (optional)</label>
+    <textarea id="extraInstructions" rows="3" placeholder="e.g., Meeting notes are in Notion DB X, check #eng-backend on Slack, Sentry org is 'mycompany'" style="width:100%;padding:8px 10px;background:#16162a;border:1px solid #333;border-radius:6px;color:#e0e0e0;font-size:12px;font-family:inherit;line-height:1.4;resize:vertical;outline:none;transition:border-color 0.15s;"></textarea>
+    <div class="hint">Extra context appended to the enhancement prompt</div>
+  </div>
+
+  <div id="mcpServers" style="display:none;margin-bottom:14px;">
+    <label>Connected MCP Servers</label>
+    <div id="mcpServerList" style="display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;"></div>
   </div>
 
   <div class="actions">

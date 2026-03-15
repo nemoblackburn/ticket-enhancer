@@ -2,22 +2,36 @@
 
 const serverUrlInput = document.getElementById("serverUrl");
 const authTokenInput = document.getElementById("authToken");
+const extraInstructionsInput = document.getElementById("extraInstructions");
 const saveBtn = document.getElementById("saveBtn");
 const testBtn = document.getElementById("testBtn");
 const statusEl = document.getElementById("status");
+const gettingStartedEl = document.getElementById("gettingStarted");
+const mcpServersEl = document.getElementById("mcpServers");
+const mcpServerListEl = document.getElementById("mcpServerList");
 
 // Load saved settings
-chrome.storage.sync.get(["serverUrl", "authToken"], (result) => {
-  if (result.serverUrl) serverUrlInput.value = result.serverUrl;
-  if (result.authToken) authTokenInput.value = result.authToken;
-});
+chrome.storage.sync.get(
+  ["serverUrl", "authToken", "extraInstructions", "onboardingComplete"],
+  (result) => {
+    if (result.serverUrl) serverUrlInput.value = result.serverUrl;
+    if (result.authToken) authTokenInput.value = result.authToken;
+    if (result.extraInstructions) extraInstructionsInput.value = result.extraInstructions;
+
+    // Show getting started section for first-time users
+    if (!result.onboardingComplete) {
+      gettingStartedEl.style.display = "block";
+    }
+  }
+);
 
 // Save settings
 saveBtn.addEventListener("click", () => {
   const serverUrl = serverUrlInput.value.trim().replace(/\/+$/, "");
   const authToken = authTokenInput.value.trim();
+  const extraInstructions = extraInstructionsInput.value;
 
-  chrome.storage.sync.set({ serverUrl, authToken }, () => {
+  chrome.storage.sync.set({ serverUrl, authToken, extraInstructions }, () => {
     showStatus("Settings saved. Reload any open Linear tabs.", "success");
   });
 });
@@ -45,8 +59,24 @@ testBtn.addEventListener("click", async () => {
       return;
     }
     const data = await resp.json();
-    showStatus(`Connected! Model: ${data.model} | MCP: ${data.mcpMode}`, "success");
+
+    // Show MCP servers with green dots
+    if (data.mcpServers && data.mcpServers.length > 0) {
+      mcpServerListEl.innerHTML = data.mcpServers
+        .map((name) => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#ccc;"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;"></span> ${name}</span>`)
+        .join("");
+      mcpServersEl.style.display = "block";
+      showStatus(`Connected! Model: ${data.model}`, "success");
+    } else {
+      mcpServersEl.style.display = "none";
+      showStatus(`Connected! Model: ${data.model} | No MCP servers found`, "success");
+    }
+
+    // Mark onboarding complete on successful test
+    chrome.storage.sync.set({ onboardingComplete: true });
+    gettingStartedEl.style.display = "none";
   } catch (err) {
+    mcpServersEl.style.display = "none";
     showStatus(`Cannot reach server at ${serverUrl}`, "error");
   }
 });
